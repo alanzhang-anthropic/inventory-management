@@ -52,3 +52,6 @@ logs/
 
 # Environment variables
 .env
+
+# Local architecture doc
+architecture.html

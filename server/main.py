@@ -118,6 +118,18 @@ class CreatePurchaseOrderRequest(BaseModel):
     quantity: int
     unit_cost: float
     expected_delivery_date: str
+
+class CreateOrderItem(BaseModel):
+    sku: str
+    name: str
+    quantity: int
+    unit_price: float
+
+class CreateOrderRequest(BaseModel):
+    items: List[CreateOrderItem]
+    customer: Optional[str] = "Internal Restocking"
+    warehouse: Optional[str] = None
+    category: Optional[str] = None
     notes: Optional[str] = None
 
 # API endpoints
@@ -303,6 +315,42 @@ def get_monthly_trends():
     result = list(months.values())
     result.sort(key=lambda x: x['month'])
     return result
+
+@app.post("/api/orders", response_model=Order)
+def submit_order(payload: CreateOrderRequest):
+    """Submit a restocking order. Appends to in-memory orders list with status='Submitted'."""
+    from datetime import datetime, timedelta
+
+    # Next numeric id: max of existing ids + 1 (orders ids are string-encoded ints)
+    next_id = str(max((int(o["id"]) for o in orders), default=0) + 1)
+
+    # Count existing submitted orders to generate a sequential RSK order number
+    submitted_count = sum(1 for o in orders if o.get("status") == "Submitted")
+    now = datetime.now()
+    order_number = f"RSK-{now.year}-{submitted_count + 1:04d}"
+
+    items_as_dicts = [item.model_dump() for item in payload.items]
+    total_value = round(sum(i["quantity"] * i["unit_price"] for i in items_as_dicts), 2)
+
+    order_date = now.strftime("%Y-%m-%dT%H:%M:%S")
+    expected_delivery = (now + timedelta(days=14)).strftime("%Y-%m-%dT%H:%M:%S")
+
+    new_order = {
+        "id": next_id,
+        "order_number": order_number,
+        "customer": payload.customer or "Internal Restocking",
+        "items": items_as_dicts,
+        "status": "Submitted",
+        "order_date": order_date,
+        "expected_delivery": expected_delivery,
+        "total_value": total_value,
+        "actual_delivery": None,
+        "warehouse": payload.warehouse,
+        "category": payload.category,
+    }
+    orders.append(new_order)
+    return new_order
+
 
 if __name__ == "__main__":
     import uvicorn
